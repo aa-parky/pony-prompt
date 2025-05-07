@@ -17,9 +17,9 @@
   "author": "aa-parky",
   "license": "AGPL-3.0-or-later",
   "bugs": {
-    "url": "https://github.com/aa-parky/pony-prompt#"
+    "url": "https://github.com/SillyTavern/Plugin-WebpackTemplate/issues"
   },
-  "homepage": "https://github.com/aa-parky/pony-prompt#",
+  "homepage": "https://github.com/SillyTavern/Plugin-WebpackTemplate#readme",
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@types/express": "^4.17.21",
