@@ -1,8 +1,9 @@
-import { Router } from "express";
 import * as fs from "fs";
 import * as path from "path";
+import { Request, Response, Router } from "express";
 
-// --- Configuration Constants ---
+// --- Configuration ---
+// IMPORTANT: This path needs to be accessible by the SillyTavern server process.
 const BASE_DIR = "/home/aapark/development/comfy-managed/input/00_pony";
 const SUBDIRS = [
   "01_faces",
@@ -13,14 +14,6 @@ const SUBDIRS = [
   "06_actions",
 ];
 
-// --- Plugin Info ---
-export const info = {
-  id: "pony-prompt", // This ID is used by SillyTavern
-  name: "Pony Prompt",
-  description:
-    "Generates prompt components based on local text files for Pony Diffusion.",
-};
-
 // --- Helper Functions ---
 
 /**
@@ -30,7 +23,6 @@ export const info = {
  */
 function readAndFilterLines(filePath: string): string[] {
   try {
-    // Try reading with utf-8 first, then latin1 as a fallback for broader compatibility
     let content = "";
     try {
       content = fs.readFileSync(filePath, "utf-8");
@@ -40,9 +32,8 @@ function readAndFilterLines(filePath: string): string[] {
       );
       content = fs.readFileSync(filePath, "latin1");
     }
-
     return content
-      .split(/\r?\n/) // Split by newline characters (Windows and Unix)
+      .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.includes("="));
   } catch (error) {
@@ -63,107 +54,109 @@ function getRandomLineAfterEquals(filePath: string): string | null {
   }
   const randomLine = lines[Math.floor(Math.random() * lines.length)];
   const parts = randomLine.split("=", 2);
-  return parts.length > 1 ? parts[1].trim() : null;
-}
-
-/**
- * Gets a random line (after "=") from a randomly selected file within a given subdirectory.
- * @param directory The subdirectory name (e.g., "01_faces") relative to BASE_DIR.
- * @returns A randomly selected prompt component string or null.
- */
-function getRandomLineFromDir(directory: string): string | null {
-  const dirPath = path.join(BASE_DIR, directory);
-  try {
-    let files = fs.readdirSync(dirPath).filter((file) => {
-      try {
-        return fs.statSync(path.join(dirPath, file)).isFile();
-      } catch (statError) {
-        console.warn(
-          `[PonyPlugin] Error stating file ${path.join(dirPath, file)}:`,
-          statError,
-        );
-        return false;
-      }
-    });
-
-    if (files.length === 0) {
-      console.warn(`[PonyPlugin] No files found in directory: ${dirPath}`);
+  if (parts.length > 1) {
+    if (typeof parts[1] === "string") {
+      return parts[1].trim();
+    } else {
+      console.warn(
+        `[PonyPlugin] Unexpected non-string value for parts[1] in file ${filePath}, line: "${randomLine}". parts[1] is:`,
+        parts[1],
+      );
       return null;
     }
+  } else {
+    return null;
+  }
+}
 
-    // Shuffle files (Fisher-Yates shuffle)
-    for (let i = files.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [files[i], files[j]] = [files[j], files[i]];
-    }
-
-    for (const fileName of files) {
-      const filePath = path.join(dirPath, fileName);
-      const result = getRandomLineAfterEquals(filePath);
-      if (result) {
-        return result;
+function buildGeneratedComponents(
+  baseDir: string,
+  subdirs: string[],
+): string[] {
+  const components: string[] = [];
+  for (const subdir of subdirs) {
+    const dirPath = path.join(baseDir, subdir);
+    try {
+      if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
+        const files = fs
+          .readdirSync(dirPath)
+          .filter((file) => file.endsWith(".txt"));
+        if (files.length > 0) {
+          const randomFile = files[Math.floor(Math.random() * files.length)];
+          const randomFilePath = path.join(dirPath, randomFile);
+          const component = getRandomLineAfterEquals(randomFilePath);
+          if (component !== null && component.trim() !== "") {
+            components.push(component.trim());
+          }
+        }
+      } else {
+        console.warn(
+          `[PonyPlugin] Directory not found or not a directory: ${dirPath}`,
+        );
       }
-    }
-    console.warn(
-      `[PonyPlugin] No valid lines found in any file in directory: ${dirPath}`,
-    );
-    return null;
-  } catch (error) {
-    console.warn(`[PonyPlugin] Error reading directory ${dirPath}:`, error);
-    return null;
-  }
-}
-
-/**
- * Builds the final string of generated prompt components.
- * @returns A string of space-separated prompt components.
- */
-function buildGeneratedComponents(): string {
-  const parts: string[] = [];
-  for (const subdir of SUBDIRS) {
-    const line = getRandomLineFromDir(subdir);
-    if (line) {
-      parts.push(line);
+    } catch (err: any) {
+      console.warn(
+        `[PonyPlugin] Error processing directory ${dirPath}:`,
+        err.message,
+      );
     }
   }
-  // Your Python script joined with ", ". Let's stick to that for consistency.
-  return parts.join(", ");
+  return components;
 }
 
-// --- Plugin Initialization ---
+// --- Plugin Definition (Exported) ---
+export const info = {
+  id: "pony-prompt",
+  name: "Pony Prompt Generator",
+  description:
+    "Generates prompt components for Pony Diffusion from local text files.",
+  version: "1.0.0",
+  author: "Your Name", // Replace with your name/username
+  website: "",
+  tags: ["text-generation", "utility"],
+};
+
 export async function init(router: Router): Promise<void> {
-  console.log("[PonyPlugin] Initializing Pony Prompt Generator plugin...");
+  // Can be async
+  console.log(
+    "[PonyPlugin] Initializing Pony Prompt Generator plugin (full logic)...",
+  );
 
-  router.post("/generate", (req, res) => {
+  router.post("/generate", (req: Request, res: Response) => {
     try {
       const userText = req.body.user_text || "";
-      const generatedComponents = buildGeneratedComponents();
+      console.log(`[PonyPlugin] Received user_text: "${userText}"`);
 
-      let finalPrompt = "/imagine";
-      if (userText.trim()) {
-        finalPrompt += ` ${userText.trim()}`;
-      }
-      if (generatedComponents.trim()) {
-        finalPrompt += ` ${generatedComponents.trim()}`;
+      const generatedComponents = buildGeneratedComponents(BASE_DIR, SUBDIRS);
+
+      let finalPrompt = userText.trim();
+      if (generatedComponents.length > 0) {
+        if (finalPrompt.length > 0) {
+          finalPrompt += " ";
+        }
+        finalPrompt += generatedComponents.join(", ");
       }
 
-      if (
-        finalPrompt === "/imagine" &&
-        !userText.trim() &&
-        !generatedComponents.trim()
+      if (finalPrompt.trim().length > 0) {
+        finalPrompt = `/imagine ${finalPrompt.trim()}`;
+      } else if (
+        userText.trim().length === 0 &&
+        generatedComponents.length === 0
       ) {
-        // If nothing was generated and no user text, send a specific message or an error
-        console.warn("[PonyPlugin] No user text and no components generated.");
-        res.status(400).json({
-          error:
-            "No prompt components could be generated and no user text was provided.",
-        });
-        return;
+        console.log(
+          "[PonyPlugin] No user text and no components generated. Returning empty prompt.",
+        );
+        // Return empty prompt or a specific message if nothing is generated
       }
 
+      console.log(`[PonyPlugin] Generated full_prompt: "${finalPrompt}"`);
       res.json({ full_prompt: finalPrompt });
-    } catch (error) {
-      console.error("[PonyPlugin] Error in /generate endpoint:", error);
+    } catch (error: any) {
+      console.error(
+        "[PonyPlugin] Error in /generate endpoint:",
+        error.message,
+        error.stack,
+      );
       res
         .status(500)
         .json({ error: "Internal server error while generating prompt." });
@@ -171,13 +164,7 @@ export async function init(router: Router): Promise<void> {
   });
 
   console.log(
-    "[PonyPlugin] Pony Prompt Generator plugin initialized with POST /generate endpoint.",
+    "[PonyPlugin] Pony Prompt Generator plugin initialized with POST /generate endpoint (full logic).",
   );
   return Promise.resolve();
 }
-
-// Optional exit function (can be uncommented if needed later)
-// export async function exit(): Promise<void> {
-//     console.log('[PonyPlugin] Exiting Pony Prompt Generator plugin.');
-//     return Promise.resolve();
-// }

@@ -8,8 +8,8 @@ const serverConfig = {
   output: {
     path: path.resolve(__dirname, "dist"),
     filename: "plugin.js",
-    libraryTarget: "commonjs2", // Changed from 'commonjs' to 'commonjs2'
-    // libraryExport: 'default', // This line has been removed or commented out
+    libraryTarget: "commonjs2",
+    // REMOVE or COMMENT OUT the line: libraryExport: "default"
   },
 
   resolve: {
@@ -40,4 +40,3 @@ const serverConfig = {
 };
 
 module.exports = [serverConfig];
-
